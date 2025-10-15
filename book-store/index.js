@@ -1,5 +1,7 @@
 const express = require('express');
 const database = require('./database');
+const { authMiddleware } = require('./middleware/auth.middleware');
+const routes = require('./routes');
 const app = express()
 
 app.use(express.json()) // imp
@@ -8,10 +10,13 @@ app.use(express.urlencoded({ extended: true }));
 const port = 5050
 
 
+app.use('/api', routes);
 
 
 app.get('/', (req, res) => {
-     res.send("hello world")
+     console.log('work in function')
+     res.status(200).send("hello world");
+
 })
 
 
@@ -20,8 +25,16 @@ app.post('/', (req, res) => {
      res.send("ok")
 })
 
+function sum(num1, num2) {
+     // await new Promise(resolve => setTimeout(resolve, 10000));
+     return num1 + num2;
+}
 
-app.get('/authors', async (req, res) => {
+
+app.get('/authors', authMiddleware, async (req, res) => {
+
+     const value = sum(1, 2)
+     console.log({ value })
 
      const client = await database.connectDatabase();
      try {
@@ -75,10 +88,5 @@ app.post('/authors', async (req, res) => {
 
 
 app.listen(port, () => {
-     console.log('work')
+     console.log('server is listening')
 })
-
-// app.listen(port, () => {
-//      console.log(`Example app listening on port ${port}`)
-
-// })
