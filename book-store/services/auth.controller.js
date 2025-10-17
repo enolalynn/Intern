@@ -19,10 +19,30 @@ const registerUser = async (req, res) => {
     }
     const client = await database.connectDatabase();
     try{
-        const {name, email, password } = req.body;
-        const users = await client.query('INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING *',[name, email, password]);
-        res.json(users.rows[0])
+        const {name, email, password, gender} = req.body;
+
+         await client.query('BEGIN');
+
+        const users = await client.query(
+                                    'INSERT INTO users (name, email, password, gender) VALUES ($1, $2, $3, $4) RETURNING *',
+                                    [name, email, password, gender]
+                                );
+
+        await client.query('COMMIT');
+
+        console.log('Transaction successful');
+        res.status(200).json(users.rows[0]);
+
     }catch(err){
+
+        await client.query('ROLLBACK');
+        await client.query(`
+                        SELECT setval(
+                        'users_id_seq',
+                        COALESCE((SELECT MAX(id) FROM users), 0)
+                        );
+                    `);
+            
         if(err.code === '23505'){
             res.status(400).json({
                 message : `email already exists!`
