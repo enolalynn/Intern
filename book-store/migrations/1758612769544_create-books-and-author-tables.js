@@ -34,7 +34,6 @@ exports.up = (database) => {
                notNull: true,
                default: database.func('current_timestamp'),
           },
-
      });
 
      database.createIndex('books', 'authorId');
