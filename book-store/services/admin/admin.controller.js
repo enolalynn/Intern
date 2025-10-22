@@ -200,8 +200,50 @@ const getAllBook = async (req, res) => {
 
      const client = await database.connectDatabase();
      try {
-          const books = await client.query('SELECT * FROM books as bo LEFT JOIN authors as at ON bo."authorId" = at.id');
-          res.json(books.rows)
+          const books = await client.query('SELECT * FROM books as bo LEFT JOIN authors as at ON bo."authorId" = at.id LEFT JOIN book_instock as bi ON bi."bookId" = bo.id');
+
+          //with map
+          const response = books.rows.map((element) => {
+               return {
+                    id: element.id,
+                    title: element.title,
+                    description: element.description,
+                    author: {
+                         id: element.authorId,
+                         name: element.name,
+                    },
+                    stockManagement: {
+                         stock: element.stock,
+                         available_stock: element.available_stock,
+                         lease_stock: element.lease_stock,
+                    }
+               }
+          })
+
+          res.json(response);
+
+
+          //with forloop
+          // const bookList = [];
+          // for (let index = 0; index < books.rows.length; index++) {
+          //      const element = books.rows[index];
+          //      const obj = {
+          //           id: element.id,
+          //           title: element.title,
+          //           description: element.description,
+          //           author: {
+          //                id: element.authorId,
+          //                name: element.name,
+          //           },
+          //           stockManagement: {
+          //                stock: element.stock,
+          //                available_stock: element.available_stock,
+          //                lease_stock: element.lease_stock,
+          //           }
+          //      }
+          //      bookList.push(obj)
+          // }
+          // res.json(bookList)
 
      } catch (err) {
           console.log(err)
@@ -232,4 +274,53 @@ const getAllBook = async (req, res) => {
      }
 }
 
-module.exports = { createAuthor, getAllAuthors, createBook, getSingleAuthor, getAllBook }
+const insertInStock = async (req, res) => {
+
+     const client = await database.connectDatabase();
+     try {
+          const { bookId, stock } = req.body;
+
+          const exist = await client.query('SELECT * FROM book_instock WHERE "bookId" = $1', [bookId]);
+
+          if (exist.rowCount !== 0) {
+               const prevStock = exist.rows[0].stock;
+               const allStock = prevStock + stock;
+               const availableStock = allStock - exist.rows[0].lease_stock;
+               const books = await client.query('UPDATE book_instock SET stock = $1, available_stock = $2 WHERE "bookId" = $3 RETURNING *', [allStock, availableStock, bookId]);
+               res.json(books.rows[0]);
+          } else {
+               const books = await client.query('INSERT INTO book_instock ("bookId", stock, available_stock) VALUES ($1, $2, $3) RETURNING *', [bookId, stock, stock]);
+               res.json(books.rows[0])
+          }
+
+
+     } catch (err) {
+          console.log(err)
+          if (err.code === '23502') {
+               res.status(400).json({
+                    message: `${err.column} is require!`
+               })
+          }
+          else if (err.code === '23503') {
+               res.status(400).json({
+                    message: "foreign key violation!"
+               })
+          }
+          else if (err.code === '42P01') {
+               res.status(400).json({
+                    message: "table does not exist!"
+               })
+          } else {
+
+               res.status(500).json({
+                    message: "internal server error!"
+               })
+          }
+
+     }
+     finally {
+          await database.disconnectDatabase();
+     }
+}
+
+module.exports = { createAuthor, getAllAuthors, createBook, getSingleAuthor, getAllBook, insertInStock }
