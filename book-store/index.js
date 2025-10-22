@@ -11,19 +11,15 @@ const port = 5050;
 
 app.use('/api', routes);
 
-
-
 app.get('/', (req, res) => {
-     console.log("work oin function")
+     console.log("work on function")
      res.status(200).send("hello world")
-})
-
+});
 
 app.post('/', (req, res) => {
      console.log(req.body)
      res.send("ok")
-})
-
+});
 
 app.get('/authors', async (req, res) => {
 
@@ -109,7 +105,7 @@ app.delete('/authors/:id', async (req, res) =>{
           const id = parseInt(req.params.id)
           const deleteRow = await client.query('DELETE FROM authors WHERE id = $1',[id]);
          
-               res.status(201).json({message:"author deleted"})
+          res.status(201).json({message:"author deleted"})
        
      }catch(error){
           console.log(error)
