@@ -1,7 +1,7 @@
 const express = require('express');
 const adminRouter = express.Router();
 const { body, param } = require('express-validator');
-const { createAuthor, getAllAuthors, getSingleAuthor, createBook, getAllBook, insertInStock } = require('../services/admin/admin.controller');
+const { createAuthor, getAllAuthors, getSingleAuthor, createBook, getAllBook, insertInStock, lease } = require('../services/admin/admin.controller');
 
 //user register
 adminRouter.post('/author', [
@@ -32,5 +32,11 @@ adminRouter.post('/book/instock', [
      body('bookId').isInt().withMessage("Please provide a bookId"),
      body('stock').isIn().withMessage("Please provide a stock quantity"),
 ], insertInStock)
+
+// [
+//      body('bookId').isInt().withMessage("Please provide a bookId"),
+//      body('stock').isIn().withMessage("Please provide a stock quantity"),
+// ], 
+adminRouter.post('/book/lease', lease)
 
 module.exports = adminRouter;

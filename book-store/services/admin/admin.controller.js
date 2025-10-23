@@ -1,5 +1,5 @@
 const database = require('../../database');
-const { validationResult } = require('express-validator');
+const { validationResult, query } = require('express-validator');
 
 /**
  * @param {import('express').Request} req
@@ -323,4 +323,66 @@ const insertInStock = async (req, res) => {
      }
 }
 
-module.exports = { createAuthor, getAllAuthors, createBook, getSingleAuthor, getAllBook, insertInStock }
+const lease = async (req, res) => {
+     const client = await database.connectDatabase();
+     try {
+
+
+          const { user_id, due_date, items } = req.body;
+          // console.log(items)
+          const bookIds = items.map(item => item.book_id);
+
+          const placeholders = bookIds.map((_, i) => `$${i + 1}`).join(',');
+
+          //db books
+          const books = await client.query(`SELECT * FROM book_instock WHERE "bookId" IN (${placeholders})`, bookIds);
+
+          let errorMessages = []
+
+          for (let index = 0; index < books.rows.length; index++) {
+               const element = books.rows[index];
+               const givenBook = items.find(item => item.book_id === element.bookId);
+               if (givenBook) {
+                    const perTotal = givenBook.quantity * givenBook.per_price;
+                    givenBook.perTotal = perTotal;
+                    if (givenBook.quantity > element.available_stock) {
+                         errorMessages.push(`Only ${element.available_stock} books are available for ${givenBook.book_id}`)
+                    }
+               }
+          }
+
+          if (errorMessages.length > 0) {
+               return res.status(400).json({
+                    message: errorMessages
+               })
+          }
+
+          const count = await client.query('SELECT COUNT(*) FROM lease_invoice');
+
+          const INVOICE_NO = 'LEASE_' + (parseInt(count.rows[0].count) + 1);
+          const totalPrice = items.reduce((a, b) => {
+               return a + b.perTotal
+
+          }, 0)
+
+          const invoice = await client.query('INSERT INTO lease_invoice (invoice_no, user_id, due_date,total_price) VALUES ($1, $2, $3, $4) RETURNING id', [INVOICE_NO, user_id, due_date, totalPrice]);
+
+          for (let index = 0; index < items.length; index++) {
+               const element = items[index];
+               await client.query('INSERT INTO lease_invoice_items (invoice_id,book_id,quantity,total_price) VALUES ($1,$2,$3,$4) ', [invoice.rows[0].id, element.book_id, element.quantity, element.perTotal])
+
+          }
+
+          //handle available
+
+          const response = await client.query('SELECT * FROM lease_invoice LEFT JOIN users ON lease_invoice.user_id = users.id LEFT JOIN lease_invoice_items ON lease_invoice.id = lease_invoice_items.invoice_id LEFT JOIN books ON lease_invoice_items.book_id = books.id WHERE lease_invoice.invoice_no = $1;', [INVOICE_NO])
+          res.json(response.rows)
+
+     } catch (e) {
+
+          console.log(e)
+
+     }
+}
+
+module.exports = { createAuthor, getAllAuthors, createBook, getSingleAuthor, getAllBook, insertInStock, lease }
