@@ -489,8 +489,60 @@ SET lease_stock = $1, available_stock = $2 WHERE "bookId" = $3;`,
 
     //handle available
 
+    // const details = await client.query(
+    //   `SELECT * FROM lease_invoice LEFT JOIN users ON lease_invoice.user_id = users.id LEFT JOIN lease_invoice_items ON lease_invoice.id = lease_invoice_items.invoice_id LEFT JOIN books ON lease_invoice_items.book_id = books.id LEFT JOIN book_instock ON book_instock."bookId" = books.id WHERE lease_invoice.invoice_no = $1;`,
+    //   [INVOICE_NO]
+    // );
     const details = await client.query(
-      `SELECT * FROM lease_invoice LEFT JOIN users ON lease_invoice.user_id = users.id LEFT JOIN lease_invoice_items ON lease_invoice.id = lease_invoice_items.invoice_id LEFT JOIN books ON lease_invoice_items.book_id = books.id LEFT JOIN book_instock ON book_instock."bookId" = books.id WHERE lease_invoice.invoice_no = $1;`,
+      `WITH
+        invoices AS (
+            SELECT id AS invoice_id, invoice_no, user_id, total_price, due_price, due_date, status, created_at, updated_at
+            FROM lease_invoice
+        ),
+        users_cte AS (
+            SELECT id AS user_id, name, email, gender
+            FROM users
+        ),
+        items AS (
+            SELECT id AS item_id, invoice_id, book_id, quantity, total_price AS item_total_price
+            FROM lease_invoice_items
+        ),
+        books_cte AS (
+            SELECT id AS book_id, title, description
+            FROM books
+        ),
+        stock AS (
+            SELECT "bookId" AS book_id, stock, available_stock, lease_stock
+            FROM book_instock
+        )
+
+    SELECT 
+        invoices.invoice_id,
+        invoices.invoice_no,
+        invoices.user_id,
+        users_cte.name AS user_name,
+        users_cte.email AS user_email,
+        books_cte.book_id,
+        books_cte.title AS book_title,
+        books_cte.description,
+        items.item_id,
+        invoices.created_at,
+        invoices.updated_at,
+        invoices.due_date,
+        invoices.status,
+        invoices.due_price,
+        items.quantity,
+        items.item_total_price,
+        invoices.total_price AS invoice_total_price,
+        stock.stock,
+        stock.available_stock,
+        stock.lease_stock
+    FROM invoices
+    JOIN users_cte ON users_cte.user_id = invoices.user_id
+    JOIN items ON items.invoice_id = invoices.invoice_id
+    JOIN books_cte ON books_cte.book_id = items.book_id
+    JOIN stock ON stock.book_id = books_cte.book_id
+    WHERE invoices.invoice_no =$1;`,
       [INVOICE_NO]
     );
 
