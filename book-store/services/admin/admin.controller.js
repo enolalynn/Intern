@@ -364,8 +364,10 @@ const lease = async (req, res) => {
                return a + b.perTotal
 
           }, 0)
-
-          const invoice = await client.query('INSERT INTO lease_invoice (invoice_no, user_id, due_date,total_price) VALUES ($1, $2, $3, $4) RETURNING id', [INVOICE_NO, user_id, due_date, totalPrice]);
+          const now = new Date();
+          const date = new Date(now.getTime() + ((due_date * 24) + 6.5) * 60 * 60 * 1000)
+          console.log(date)
+          const invoice = await client.query('INSERT INTO lease_invoice (invoice_no, user_id, due_date,total_price) VALUES ($1, $2, $3, $4) RETURNING id', [INVOICE_NO, user_id, date, totalPrice]);
 
           for (let index = 0; index < items.length; index++) {
                const element = items[index];

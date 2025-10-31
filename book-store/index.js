@@ -3,9 +3,11 @@ const database = require('./database');
 const { authMiddleware } = require('./middleware/auth.middleware');
 const routes = require('./routes');
 const app = express()
+const cors = require('cors');
 
 app.use(express.json()) // imp
 app.use(express.urlencoded({ extended: true }));
+app.use(cors());
 
 const port = 5050
 
