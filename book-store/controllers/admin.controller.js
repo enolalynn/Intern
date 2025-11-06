@@ -2,6 +2,23 @@ const { contextsKey } = require("express-validator/lib/base");
 const database = require("../database");
 const { validationResult } = require("express-validator");
 const { password } = require("pg/lib/defaults");
+const { CreateAuthorDto } = require("../dtos/create-author.dto");
+const adminService = require("../services/admin.service");
+
+// Controller
+// 1. validation
+// |
+// Service
+// 1. Business validations (author => checkAuthorNameExist(), if author exist, throws error)
+// 2. Business operations
+// |
+// Repository (author repository, book repository) = repository pattern
+// 1. create()
+// 2. checkAuthorNameExist()
+// |
+// util
+// generateSerialNumber
+// mgmg-192839
 
 const createAuthor = async (req, res) => {
   const errors = validationResult(req);
@@ -11,15 +28,25 @@ const createAuthor = async (req, res) => {
       errors: errors.array(),
     });
   }
-  const client = await database.connectDatabase();
 
   try {
-    const { name, bio, age } = req.body;
-    const author = await client.query(
-      "INSERT INTO authors (name, bio, age) VALUES ($1, $2, $3) RETURNING * ",
-      [name, bio, age]
+    const body = req.body;
+    const dto = new CreateAuthorDto(
+      body?.name ?? undefined,
+      body?.bio ?? undefined,
+      body?.age ?? undefined
     );
-    res.json(author.rows[0]);
+    // const isValid = await dto.validate();
+    // if (!isValid) {
+    //   return res.status(400).json({
+    //     message: "Invalid payload!",
+    //     errors: errors.array(),
+    //   });
+    // }
+
+    const createdAuthor = await adminService.createAdmin(dto);
+
+    res.json(createdAuthor);
   } catch (err) {
     console.log(err);
     if (err.code === "23505") {
@@ -43,8 +70,6 @@ const createAuthor = async (req, res) => {
         message: "internal server error!",
       });
     }
-  } finally {
-    await database.disconnectDatabase();
   }
 };
 
@@ -469,9 +494,15 @@ SET lease_stock = $1, available_stock = $2 WHERE "bookId" = $3;`,
       return a + b.perTotal;
     }, 0);
 
+    const now = new Date();
+    const date = new Date(
+      now.getTime() + (due_date * 24 + 6.5) * 60 * 60 * 1000
+    );
+    console.log(date);
+
     const invoice = await client.query(
       "INSERT INTO lease_invoice (invoice_no, user_id, due_date,total_price) VALUES ($1, $2, $3, $4) RETURNING id",
-      [INVOICE_NO, user_id, due_date, totalPrice]
+      [INVOICE_NO, user_id, date, totalPrice]
     );
 
     for (let index = 0; index < items.length; index++) {
@@ -616,6 +647,157 @@ SET lease_stock = $1, available_stock = $2 WHERE "bookId" = $3;`,
   }
 };
 
+const getSingleStatus = async (req, res) => {
+  const client = await database.connectDatabase();
+  try {
+    const invoice_no = req.params.invoice_no;
+    console.log(invoice_no);
+    if (!invoice_no) {
+      return res.status(400).json({
+        message: "provide valid invoice no..!",
+      });
+    }
+
+    const findInvoice = await client.query(
+      "SELECT * FROM lease_invoice WHERE invoice_no = $1",
+      [invoice_no]
+    );
+    if (findInvoice.rowCount === 0) {
+      res.status(404).json({
+        message: "invoice no. not found!",
+      });
+    }
+    const today = new Date();
+    console.log(today);
+    console.log(findInvoice.rows[0].due_date);
+    if (findInvoice.rows[0].due_date < today) {
+      const updated = await client.query(
+        `UPDATE lease_invoice SET status = 'OVER_DUE' WHERE id = $1 RETURNING *`,
+        [id]
+      );
+      return res.json(updated.rows[0]);
+    }
+    return res.json(findInvoice.rows[0]);
+  } catch (err) {
+    console.log(err);
+    if (err.code === "23502") {
+      res.status(400).json({
+        message: `${err.column} is required!`,
+      });
+    } else if (err.code === "23503") {
+      res.status(400).json({
+        message: "foreign key violation!",
+      });
+    } else if (err.code === "42P01") {
+      res.status(400).json({
+        message: "table does not exist!",
+      });
+    } else {
+      res.status(500).json({
+        message: "internal server error!",
+      });
+    }
+  } finally {
+    await database.disconnectDatabase();
+  }
+};
+
+const getAllStatus = async (req, res) => {
+  const client = await database.connectDatabase();
+
+  try {
+    const today = new Date();
+    const leaseInvoice = await client.query(
+      `UPDATE lease_invoice SET status = 'OVER_DUE' WHERE due_date < $1 RETURNING *`,
+      [today]
+    );
+
+    res.json(leaseInvoice.rows);
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({
+      message: "internal server error!",
+    });
+  } finally {
+    await database.disconnectDatabase();
+  }
+};
+
+const getSingleUserInvoice = async (req, res) => {
+  const client = await database.connectDatabase();
+  try {
+    const id = parseInt(req.params.id);
+    const singleUserLease = await client.query(
+      `SELECT li.id AS lease_invoice_id , li.invoice_no, li.user_id,li.total_price AS invoice_total_price, li.due_price,li.created_at AS borrowed_at,li.due_date, li.status, users.email, users.name AS user_name, items.id AS item_id , items.book_id, items.quantity, items.total_price AS items_total_price , bo.title, bo.description, bo."authorId" AS author_id, bo."createdAt" AS book_created_at , at.name AS author_name FROM lease_invoice as li JOIN users ON users.id = li.user_id LEFT JOIN lease_invoice_items as items ON li.id= items.invoice_id LEFT JOIN books as bo ON bo.id = items.book_id LEFT JOIN authors as at ON at.id = bo."authorId"
+       WHERE li.user_id = $1`,
+      [id]
+    );
+    const data = singleUserLease.rows;
+
+    const user = {
+      id: data[0].user_id,
+      name: data[0].user_name,
+      email: data[0].email,
+    };
+
+    const grouped = [...new Set(data.map((x) => x.lease_invoice_id))];
+    console.log({ grouped });
+    const result = [];
+    for (let index = 0; index < grouped.length; index++) {
+      const element = grouped[index];
+
+      const filterBooks = data.filter((d) => d.lease_invoice_id === element);
+      console.log(filterBooks);
+      result.push({
+        invoice_id: element,
+        invoice_no: filterBooks[0].invoice_no,
+        lease_status: filterBooks[0].status,
+        invoice_total_price: filterBooks.reduce((acc, cur) => {
+          return acc + cur.items_total_price;
+        }, 0),
+        due_price: filterBooks[0].due_price,
+        borrowed_at: filterBooks[0].borrowed_at,
+        books: filterBooks.map((book) => {
+          return {
+            book_id: book.book_id,
+            title: book.title,
+            description: book.description,
+            createdAt: book.book_created_at,
+            author_id: book.author_id,
+            author_name: book.author_name,
+            quantity: book.quantity,
+            total_price: book.items_total_price,
+          };
+        }),
+      });
+    }
+
+    return res.json({
+      user: user,
+      lease_history: result,
+    });
+
+    console.log(result);
+    res.json(result);
+    // res.json(singleUserLease.rows);
+  } catch (err) {
+    console.log(err);
+  } finally {
+    await database.disconnectDatabase();
+  }
+};
+
+const returnBook = async (req, res) => {
+  const client = await database.connectDatabase();
+  try {
+    const id = req.params.id;
+  } catch (err) {
+    console.log(err);
+  } finally {
+    await database.disconnectDatabase();
+  }
+};
+
 module.exports = {
   createAuthor,
   getAllAuthors,
@@ -626,4 +808,7 @@ module.exports = {
   deleteBook,
   insertInStock,
   lease,
+  getSingleStatus,
+  getAllStatus,
+  getSingleUserInvoice,
 };
