@@ -707,10 +707,15 @@ const getAllStatus = async (req, res) => {
 
   try {
     const today = new Date();
-    const leaseInvoice = await client.query(
-      `UPDATE lease_invoice SET status = 'OVER_DUE' WHERE due_date < $1 RETURNING *`,
-      [today]
-    );
+    const leaseInvoice = await client.query(`SELECT * FROM lease_invoice `);
+    if (leaseInvoice.rows[0].due_date < today) {
+      const leaseInvoiceUpdate = await client.query(
+        // `UPDATE lease_invoice SET status = 'OVER_DUE' WHERE due_date < $1 RETURNING *`,
+        // [today]
+        `UPDATE lease_invoice SET status = 'OVER_DUE' RETURNING *`
+      );
+      res.json(leaseInvoiceUpdate.rows);
+    }
 
     res.json(leaseInvoice.rows);
   } catch (err) {
@@ -732,6 +737,11 @@ const getSingleUserInvoice = async (req, res) => {
        WHERE li.user_id = $1`,
       [id]
     );
+    if (singleUserLease.rowCount === 0) {
+      res.status(404).json({
+        message: "user id is not found in lease history!",
+      });
+    }
     const data = singleUserLease.rows;
 
     const user = {
@@ -757,6 +767,7 @@ const getSingleUserInvoice = async (req, res) => {
         }, 0),
         due_price: filterBooks[0].due_price,
         borrowed_at: filterBooks[0].borrowed_at,
+        due_date: filterBooks[0].due_date,
         books: filterBooks.map((book) => {
           return {
             book_id: book.book_id,
@@ -782,6 +793,10 @@ const getSingleUserInvoice = async (req, res) => {
     // res.json(singleUserLease.rows);
   } catch (err) {
     console.log(err);
+
+    res.status(500).json({
+      message: "internal server error!",
+    });
   } finally {
     await database.disconnectDatabase();
   }
@@ -790,9 +805,83 @@ const getSingleUserInvoice = async (req, res) => {
 const returnBook = async (req, res) => {
   const client = await database.connectDatabase();
   try {
-    const id = req.params.id;
+    const invoice_id = +req.params.invoice_id;
+    const { due_price, return_at } = req.body;
+
+    const joinAll = await client.query(
+      `SELECT * FROM lease_invoice_items AS items LEFT JOIN book_instock AS bi ON bi."bookId" = items.book_id LEFT JOIN lease_invoice AS li ON li.id = items.invoice_id WHERE invoice_id = $1`,
+      [invoice_id]
+    );
+
+    //NO INVOICE_ID NOT FOUND
+    if (joinAll.rowCount === 0) {
+      res.status(404).json({
+        message: "lease invoice id is not found in lease history!",
+      });
+    }
+    //INVOICE ALREADY RETURNED
+    if (joinAll.rows[0].status === "RETURNED") {
+      res.status(404).json({
+        message: "Lease invoice already returned!",
+      });
+    }
+    //GET BOOKIDS & QUANTITIES
+    const bookIds = joinAll.rows.map((item) => item.book_id);
+    const quantities = joinAll.rows.map((item) => item.quantity);
+
+    //FOR THE PURPOSE OF ONLY ONE DUE_DATE //CUZ ARRAY TYPE IN ITEMS TABLE
+    const invoices = await client.query(
+      `SELECT * FROM lease_invoice WHERE id = $1`,
+      [invoice_id]
+    );
+    const due_date = invoices.rows[0].due_date;
+
+    //IF OVER DUE => HAVE TO PROVIDE DUE_PRICE
+    if (due_date < new Date(return_at)) {
+      if (!due_price) {
+        res.json({
+          message:
+            "Return date is over due date. Please provide the due_price for it.",
+        });
+      } else {
+        //OVER DUE
+        await client.query(
+          `UPDATE lease_invoice SET due_price = $1, updated_at = $2, status = 'RETURNED'  WHERE id = $3`,
+          [due_price, return_at, invoice_id]
+        );
+      }
+    } else {
+      await client.query(
+        `UPDATE lease_invoice SET updated_at = $1, status = 'RETURNED'  WHERE id = $2`,
+        [return_at, invoice_id]
+      );
+    }
+
+    //STOCK UPDATE
+    for (let i = 0; i < joinAll.rowCount; i++) {
+      const available = joinAll.rows[i].available_stock + quantities[i];
+      const lease_stock = joinAll.rows[i].lease_stock - quantities[i];
+
+      await client.query(
+        `UPDATE book_instock SET available_stock = $1, lease_stock = $2 WHERE "bookId" = $3`,
+        [available, lease_stock, bookIds[i]]
+      );
+    }
+
+    const returnUpdate = await client.query(
+      `SELECT li.id AS lease_invoice_id , li.invoice_no, li.user_id,li.total_price AS invoice_total_price, li.due_price,li.created_at AS borrowed_at,li.due_date, li.updated_at AS returned_at, li.status, items.id AS item_id , items.book_id, items.quantity, items.total_price AS items_total_price, bi.available_stock, bi.lease_stock
+    FROM lease_invoice as li
+    LEFT JOIN lease_invoice_items as items ON li.id= items.invoice_id
+    LEFT JOIN book_instock AS bi ON bi."bookId" = items.book_id
+         WHERE li.id = $1`,
+      [invoice_id]
+    );
+    res.json(returnUpdate.rows);
   } catch (err) {
     console.log(err);
+    res.status(500).json({
+      message: "internal server error!",
+    });
   } finally {
     await database.disconnectDatabase();
   }
@@ -811,4 +900,5 @@ module.exports = {
   getSingleStatus,
   getAllStatus,
   getSingleUserInvoice,
+  returnBook,
 };

@@ -14,6 +14,7 @@ const {
   getSingleStatus,
   getAllStatus,
   getSingleUserInvoice,
+  returnBook,
 } = require("../controllers/admin.controller.js");
 
 //user register
@@ -113,6 +114,16 @@ adminRouter.get(
 );
 
 adminRouter.get("/lease-status", getAllStatus);
-adminRouter.get("/user-lease/:id", getSingleUserInvoice);
+adminRouter.get(
+  "/user-lease/:id",
+  [param("user_id").notEmpty().withMessage("provide valid id")],
+  getSingleUserInvoice
+);
+
+adminRouter.put(
+  "/return/:invoice_id",
+  [body("invoice_id").isInt().withMessage("Please provide id")],
+  returnBook
+);
 
 module.exports = adminRouter;
