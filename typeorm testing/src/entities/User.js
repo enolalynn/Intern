@@ -31,6 +31,13 @@ export default new EntitySchema({
           address: {
                type: String,
                nullable: true
+          },
+     },
+     relations: {
+          photos: {
+               type: "one-to-many",
+               target: "Photo",
+               inverseSide: "user"
           }
      }
 })

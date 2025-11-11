@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm'
 import User from '../entities/User.js'
+import Photo from '../entities/Photo.js'
 
 
 export const AppDataSource = new DataSource({
@@ -11,7 +12,7 @@ export const AppDataSource = new DataSource({
      database: "typeorm-testing",
      synchronize: false,
      // logging: true,
-     entities: [User],
+     entities: [User, Photo],
      subscribers: [],
      migrations: ['src/migrations/*.js'],
 })
