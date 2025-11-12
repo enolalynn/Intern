@@ -7,8 +7,8 @@
  * @class
  * @implements {MigrationInterface}
  */
-export class Migration1762848601846 {
-    name = 'Migration1762848601846'
+export class Migration1762853894080 {
+    name = 'Migration1762853894080'
 
     /**
      * @param {QueryRunner} queryRunner
